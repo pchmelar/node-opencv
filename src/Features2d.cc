@@ -20,7 +20,7 @@ public:
       Nan::AsyncWorker(callback),
       image1(image1),
       image2(image2),
-      dissimilarity(0) {
+      score(0) {
   }
 
   ~AsyncDetectSimilarity() {
@@ -34,7 +34,7 @@ public:
     cv::Ptr<cv::DescriptorMatcher> matcher = cv::DescriptorMatcher::create(
         "BruteForce-Hamming");
 
-    std::vector<cv::DMatch> matches;
+    std::vector<std::vector<cv::DMatch>> matches;
 
     cv::Mat descriptors1 = cv::Mat();
     cv::Mat descriptors2 = cv::Mat();
@@ -48,38 +48,17 @@ public:
     extractor->compute(image1, keypoints1, descriptors1);
     extractor->compute(image2, keypoints2, descriptors2);
 
-    matcher->match(descriptors1, descriptors2, matches);
+    matcher->knnMatch(descriptors1, descriptors2, matches, 2);
 
-    double max_dist = 0;
-    double min_dist = 100;
+    int goodMatches = 0;
 
-    //-- Quick calculation of max and min distances between keypoints
-    for (int i = 0; i < descriptors1.rows; i++) {
-      double dist = matches[i].distance;
-      if (dist < min_dist) {
-        min_dist = dist;
-      }
-      if (dist > max_dist) {
-        max_dist = dist;
+    for (unsigned i = 0; i < matches.size(); i++) {
+      if (matches[i].size() >= 2 && matches[i][0].distance < 0.8*matches[i][1].distance) {
+        goodMatches++;
       }
     }
 
-    //-- Draw only "good" matches (i.e. whose distance is less than 2*min_dist,
-    //-- or a small arbitary value ( 0.02 ) in the event that min_dist is very
-    //-- small)
-    //-- PS.- radiusMatch can also be used here.
-    std::vector<cv::DMatch> good_matches;
-    double good_matches_sum = 0.0;
-
-    for (int i = 0; i < descriptors1.rows; i++) {
-      double distance = matches[i].distance;
-      if (distance <= std::max(2 * min_dist, 0.02)) {
-        good_matches.push_back(matches[i]);
-        good_matches_sum += distance;
-      }
-    }
-
-    dissimilarity = (double) good_matches_sum / (double) good_matches.size();
+    score = goodMatches;
   }
 
   void HandleOKCallback() {
@@ -88,7 +67,7 @@ public:
     Local<Value> argv[2];
 
     argv[0] = Nan::Null();
-    argv[1] = Nan::New<Number>(dissimilarity);
+    argv[1] = Nan::New<Number>(score);
 
     callback->Call(2, argv);
   }
@@ -96,7 +75,7 @@ public:
 private:
   cv::Mat image1;
   cv::Mat image2;
-  double dissimilarity;
+  int score;
 };
 
 NAN_METHOD(Features::Similarity) {
